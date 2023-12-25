@@ -452,7 +452,7 @@ async def publish_mqtt():
             report = {"_type": "location",
                       "lat": tag[4],
                       "lon": tag[5],
-                      "timestamp": tag[6],
+                      "tst": tag[6],
                       "tag": tag[1]
                       }
             escape_keyname = tag[0].replace("/", "_")
