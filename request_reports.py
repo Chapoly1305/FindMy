@@ -112,7 +112,7 @@ if __name__ == "__main__":
             priv = int.from_bytes(base64.b64decode(privkeys[report['id']]), byteorder='big')
             data = base64.b64decode(report['payload'])
             # the following is all copied from https://github.com/hatomist/openhaystack-python, thanks @hatomist!
-            timestamp = int.from_bytes(data[0:4]) + 978307200
+            timestamp = int.from_bytes(data[0:4], 'big') + 978307200
 
             if timestamp >= startdate:
                 eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5:62])
