@@ -188,7 +188,7 @@ async def single_device_encrypted_reports(
         advertisement_key: str = Query(
             description="Hashed Advertisement Base64 Key.",
             min_length=44, max_length=44, regex=r"^[-A-Za-z0-9+/]*={0,3}$"),
-        hours: int = Query(1, description="Hours to search back in time", ge=1, le=24),):
+        hours: int = Query(1, description="Hours to search back in time", ge=1, le=24), ):
     """
     Enter one hashed advertisement key in base64 format, and the hours to search back in time. <br>
     The API will attempt to retrieve the reports from Apple and provide as a JSON response. <br>
@@ -432,8 +432,9 @@ async def publish_mqtt():
         return JSONResponse(
             content={"error": f"No valid report found"},
             status_code=400)
-    try:
-        for tag in tags:
+
+    for tag in tags:
+        try:
             logging.debug(f"\n"
                           f"tag[0]: {tag[0]} \n"
                           f"tag[1]: {tag[1]} \n"
@@ -476,13 +477,12 @@ async def publish_mqtt():
                     port=int(tag[3]), keepalive=60, will=None, tls=None,
                     auth={'username': tag[9], 'password': tag[10]},
                     transport="tcp")
-
-        return JSONResponse(
-            content={"success": f"Published MQTT"},
-            status_code=200)
-    except Exception as e:
-        logging.error(f"Publish MQTT Failed: {e}", exc_info=True)
-        pass
+        except Exception as e:
+            logging.error(f"Publish MQTT Failed: {e}", exc_info=True)
+            pass
+    return JSONResponse(
+        content={"success": f"Published MQTT"},
+        status_code=200)
 
 
 @app.post("/Tag_Removal/", summary="Remove everything from Database with given hashed, advertisement, or private key.")
