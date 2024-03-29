@@ -171,7 +171,7 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
             content={"error": f"No valid Hashed Advertisement Base64 Key(s) found"},
             status_code=400)
 
-    unix_epoch = int(datetime.datetime.now().strftime('%s'))
+    unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
     data = {"search": [{"startDate": start_date * 1000, "endDate": unix_epoch * 1000, "ids": advertisement_keys_list}]}
 
@@ -193,7 +193,7 @@ async def single_device_encrypted_reports(
     Enter one hashed advertisement key in base64 format, and the hours to search back in time. <br>
     The API will attempt to retrieve the reports from Apple and provide as a JSON response. <br>
     """
-    unix_epoch = int(datetime.datetime.now().strftime('%s'))
+    unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
     data = {"search": [{"startDate": start_date * 1000, "endDate": unix_epoch * 1000,
                         "ids": [advertisement_key.strip().replace(" ", "")]}]}

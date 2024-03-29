@@ -85,7 +85,7 @@ if __name__ == "__main__":
                 else:
                     print(f"Couldn't find key pair in {keyfile}")
 
-        unixEpoch = int(datetime.datetime.now().strftime('%s'))
+        unixEpoch = int(datetime.datetime.now().timestamp())
         startdate = unixEpoch - (60 * 60 * args.hours)
         data = {"search": [{"startDate": startdate * 1000, "endDate": unixEpoch * 1000, "ids": list(names.keys())}]}
 
