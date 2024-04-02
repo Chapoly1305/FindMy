@@ -406,7 +406,7 @@ async def publish_mqtt():
     if time.time() - app.last_publish_time < 60:
         return JSONResponse(
             content={
-                "error": f"Publish MQTT too often, please wait for "
+                "error": f"Publish MQTT too frequently, please wait for "
                          f"{int(60 - (time.time() - app.last_publish_time))} seconds"},
             status_code=400)
     else:
