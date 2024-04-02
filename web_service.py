@@ -450,10 +450,10 @@ async def publish_mqtt():
 
             # https://owntracks.org/booklet/tech/json/#_typelocation
             report = {"_type": "location",
-                      "lat": tag[4],
-                      "lon": tag[5],
-                      "timestamp": tag[6],
-                      "tag": tag[1]
+                      "lat": float(tag[4]),
+                      "lon": float(tag[5]),
+                      "tst": float(tag[6]),
+                      "tid": tag[1]
                       }
             escape_keyname = tag[0].replace("/", "_")
 
