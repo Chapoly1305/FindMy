@@ -419,12 +419,11 @@ async def publish_mqtt():
     sync_latest_decrypted_reports()
 
     tags = _sq3.execute(
-        "SELECT hash_adv_key, friendly_name, mqtt_server, mqtt_port, lat, lon, max(timestamp), mqtt_over_tls,"
-        "mqtt_publish_encryption_key, mqtt_username, mqtt_userpass, mqtt_topic, max(conf) "
-        "FROM tags, reports "
-        "WHERE reports.id = tags.hash_adv_key AND lat IS NOT NULL AND lon IS NOT NULL "
-        "GROUP BY hash_adv_key, mqtt_server "
-        "ORDER BY timestamp DESC;").fetchall()
+        "SELECT hash_adv_key, friendly_name, mqtt_server, mqtt_port, lat, lon, timestamp, mqtt_over_tls, "
+        "mqtt_publish_encryption_key, mqtt_username, mqtt_userpass, mqtt_topic, conf FROM tags, reports "
+        "WHERE reports.id = tags.hash_adv_key AND lat IS NOT NULL AND lon IS NOT NULL GROUP BY hash_adv_key, "
+        "friendly_name, mqtt_server, mqtt_port, lat, lon, mqtt_over_tls, mqtt_publish_encryption_key, mqtt_username, "
+        "mqtt_userpass, mqtt_topic ORDER BY timestamp DESC LIMIT 1;").fetchall()
 
     logging.debug(f"tags to send. {tags}")
 
