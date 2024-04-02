@@ -424,7 +424,7 @@ async def publish_mqtt():
         "FROM tags, reports "
         "WHERE reports.id = tags.hash_adv_key AND lat IS NOT NULL AND lon IS NOT NULL "
         "GROUP BY hash_adv_key, mqtt_server "
-        "ORDER BY timestamp ;").fetchall()
+        "ORDER BY timestamp DESC;").fetchall()
 
     logging.debug(f"tags to send. {tags}")
 
