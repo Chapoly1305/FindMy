@@ -418,12 +418,45 @@ async def publish_mqtt():
 
     sync_latest_decrypted_reports()
 
-    tags = _sq3.execute(
-        "SELECT hash_adv_key, friendly_name, mqtt_server, mqtt_port, lat, lon, timestamp, mqtt_over_tls, "
-        "mqtt_publish_encryption_key, mqtt_username, mqtt_userpass, mqtt_topic, conf FROM tags, reports "
-        "WHERE reports.id = tags.hash_adv_key AND lat IS NOT NULL AND lon IS NOT NULL GROUP BY hash_adv_key, "
-        "friendly_name, mqtt_server, mqtt_port, lat, lon, mqtt_over_tls, mqtt_publish_encryption_key, mqtt_username, "
-        "mqtt_userpass, mqtt_topic ORDER BY timestamp DESC LIMIT 1;").fetchall()
+    sql_query = """
+    WITH RankedReports AS (
+      SELECT
+        hash_adv_key,
+        friendly_name,
+        mqtt_server,
+        mqtt_port,
+        lat,
+        lon,
+        timestamp,
+        mqtt_over_tls,
+        mqtt_publish_encryption_key,
+        mqtt_username,
+        mqtt_userpass,
+        mqtt_topic,
+        conf,
+        ROW_NUMBER() OVER(PARTITION BY hash_adv_key ORDER BY timestamp DESC) AS rn
+      FROM tags
+      JOIN reports ON reports.id = tags.hash_adv_key
+      WHERE lat IS NOT NULL AND lon IS NOT NULL
+    )
+    SELECT
+      hash_adv_key,
+      friendly_name,
+      mqtt_server,
+      mqtt_port,
+      lat,
+      lon,
+      timestamp,
+      mqtt_over_tls,
+      mqtt_publish_encryption_key,
+      mqtt_username,
+      mqtt_userpass,
+      mqtt_topic,
+      conf
+    FROM RankedReports
+    WHERE rn = 1;
+    """
+    tags = _sq3.execute(sql_query).fetchall()
 
     logging.debug(f"tags to send. {tags}")
 
