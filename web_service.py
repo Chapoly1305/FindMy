@@ -123,6 +123,7 @@ def decrypt_payload(report: str, private_key: str) -> {}:
     priv = int.from_bytes(base64.b64decode(private_key), byteorder="big")
 
     timestamp = int.from_bytes(data[0:4], byteorder="big") + 978307200
+    confidence = int.from_bytes(data[4:5], byteorder="big")
     eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5:62])
     shared_key = ec.derive_private_key(priv, ec.SECP224R1(), default_backend()).exchange(ec.ECDH(), eph_key)
     symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[5:62])
@@ -136,7 +137,7 @@ def decrypt_payload(report: str, private_key: str) -> {}:
     result = {}
     latitude = struct.unpack(">i", clear_text[0:4])[0] / 10000000.0
     longitude = struct.unpack(">i", clear_text[4:8])[0] / 10000000.0
-    confidence = int.from_bytes(clear_text[8:9], byteorder="big")
+    horizontal_accuracy = int.from_bytes(clear_text[8:9], byteorder="big")
     status = int.from_bytes(clear_text[9:10], byteorder="big")
 
     result['timestamp'] = timestamp
@@ -145,6 +146,7 @@ def decrypt_payload(report: str, private_key: str) -> {}:
     result['lon'] = longitude
     result['confidence'] = confidence
     result['status'] = status
+    result['horizontal_accuracy'] = horizontal_accuracy
 
     return result
 
