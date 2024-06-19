@@ -124,7 +124,14 @@ def decrypt_payload(report: str, private_key: str) -> {}:
 
     timestamp = int.from_bytes(data[0:4], byteorder="big") + 978307200
     confidence = int.from_bytes(data[4:5], byteorder="big")
-    eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5:62])
+    try:
+        eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5:62])
+    except ValueError as e:
+        result = {'timestamp': timestamp, 'isodatetime': datetime.datetime.fromtimestamp(timestamp).isoformat(),
+                  'lat': -999, 'lon': -999, 'confidence': -999, 'status': -999, 'horizontal_accuracy': -999,
+                  'decrypt_success': False, 'fail_reason': str(e)}
+        return result
+
     shared_key = ec.derive_private_key(priv, ec.SECP224R1(), default_backend()).exchange(ec.ECDH(), eph_key)
     symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[5:62])
     iv = symmetric_key[16:]
@@ -147,7 +154,8 @@ def decrypt_payload(report: str, private_key: str) -> {}:
     result['confidence'] = confidence
     result['status'] = status
     result['horizontal_accuracy'] = horizontal_accuracy
-
+    result['decrypt_success'] = True
+    result['fail_reason'] = ''
     return result
 
 
