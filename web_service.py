@@ -123,22 +123,23 @@ def decrypt_payload(report: str, private_key: str) -> {}:
     priv = int.from_bytes(base64.b64decode(private_key), byteorder="big")
 
     timestamp = int.from_bytes(data[0:4], byteorder="big") + 978307200
-    confidence = int.from_bytes(data[4:5], byteorder="big")
-    try:
+    if len(data) == 88:
+        confidence = int.from_bytes(data[4:5], byteorder="big")
         eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5:62])
-    except ValueError as e:
-        result = {'timestamp': timestamp, 'isodatetime': datetime.datetime.fromtimestamp(timestamp).isoformat(),
-                  'lat': -999, 'lon': -999, 'confidence': -999, 'status': -999, 'horizontal_accuracy': -999,
-                  'decrypt_success': False, 'fail_reason': str(e)}
-        return result
+        shared_key = ec.derive_private_key(priv, ec.SECP224R1(), default_backend()).exchange(ec.ECDH(), eph_key)
+        symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[5:62])
+        ciper_txt = data[62:72]
+        auth_tag = data[72:]
+    elif len(data) == 89:
+        confidence = int.from_bytes(data[4:6], byteorder="big")
+        eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[6:63])
+        shared_key = ec.derive_private_key(priv, ec.SECP224R1(), default_backend()).exchange(ec.ECDH(), eph_key)
+        symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[6:63])
+        ciper_txt = data[63:73]
+        auth_tag = data[73:]
 
-    shared_key = ec.derive_private_key(priv, ec.SECP224R1(), default_backend()).exchange(ec.ECDH(), eph_key)
-    symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[5:62])
     iv = symmetric_key[16:]
     decryption_key = symmetric_key[:16]
-    ciper_txt = data[62:72]
-    auth_tag = data[72:]
-
     clear_text = decrypt(ciper_txt, algorithms.AES(decryption_key), modes.GCM(iv, auth_tag))
 
     result = {}
