@@ -162,6 +162,17 @@ def decrypt_payload(report: str, private_key: str) -> {}:
     return result
 
 
+def input_sanitize(input_str: str) -> str:
+    input_str = input_str.strip().strip().replace(" ", "")
+    if len(input_str) == 44:
+        if re.match(r"^[-A-Za-z0-9+/]*={0,3}$", input_str):
+            return input_str
+    if len(input_str) in [64, 56]:
+        if re.match(r"^[A-Fa-f0-9]*$", input_str):
+            return input_str
+    return ""
+
+
 def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
     re_exp = r"^[-A-Za-z0-9+/]*={0,3}$"
     advertisement_keys_list = []
@@ -199,17 +210,26 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
 @app.post("/SingleDeviceEncryptedReports/", summary="Retrieve reports for one device at a time.")
 async def single_device_encrypted_reports(
         advertisement_key: str = Query(
-            description="Hashed Advertisement Base64 Key.",
-            min_length=44, max_length=44, regex=r"^[-A-Za-z0-9+/]*={0,3}$"),
+            description="Advertisement Key. Hashed public key in Base64 or HexString format",
+            regex=r"^[-A-Za-z0-9+/]*={0,3}$"),
         hours: int = Query(1, description="Hours to search back in time", ge=1, le=24), ):
     """
-    Enter one hashed advertisement key in base64 format, and the hours to search back in time. <br>
+    Enter one hashed advertisement key in hex string or base64 format, and the hours to search back in time. <br>
     The API will attempt to retrieve the reports from Apple and provide as a JSON response. <br>
     """
+    advertisement_key_san = input_sanitize(advertisement_key)
+    if advertisement_key_san == "":
+        return JSONResponse(
+            content={"error": f"Invalid Key: {advertisement_key}"},
+            status_code=400)
+
+    if len(advertisement_key_san) == 64:
+        advertisement_key_san = base64.b64encode(bytes.fromhex(advertisement_key_san)).decode("ascii")
     unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
+
     data = {"search": [{"startDate": start_date * 1000, "endDate": unix_epoch * 1000,
-                        "ids": [advertisement_key.strip().replace(" ", "")]}]}
+                        "ids": [advertisement_key_san]}]}
 
     r = requests.post("https://gateway.icloud.com/acsnservice/fetch",
                       auth=(dsid, searchPartyToken),
