@@ -139,6 +139,8 @@ def decrypt_payload(report: str, private_key: str) -> {}:
         symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[6:63])
         ciper_txt = data[63:73]
         auth_tag = data[73:]
+    else:
+        return {'decrypt_success': False, 'fail_reason': 'Invalid Payload Length'}
 
     iv = symmetric_key[16:]
     decryption_key = symmetric_key[:16]
@@ -164,7 +166,7 @@ def decrypt_payload(report: str, private_key: str) -> {}:
 
 def input_sanitize(input_str: str) -> str:
     input_str = input_str.strip().strip().replace(" ", "")
-    if len(input_str) == 44:
+    if len(input_str) in [44, 40]:
         if re.match(r"^[-A-Za-z0-9+/]*={0,3}$", input_str):
             return input_str
     if len(input_str) in [64, 56]:
@@ -247,9 +249,20 @@ async def multiple_device_encrypted_reports(
 
         hours: int = Body(1, description="Hours to search back in time", ge=1, le=24)):
     """
-    Enter one or multiple hashed advertisement key(s) in base64 format, and the hours to search back in time. <br>
+    Enter one or multiple hashed advertisement key(s) in base64 or HexString format,
+    and the hours to search back in time. <br>
     The API will attempt to retrieve the reports from Apple and provide as a JSON response. <br>
     """
+    key_len = len(advertisement_keys.split(',')[0].strip().replace(" ", ""))
+    if key_len != 44:
+        if key_len == 64:
+            # encode each key to base64, form new string
+            advertisement_keys = ",".join([base64.b64encode(bytes.fromhex(key)).decode("ascii") for key in
+                                           advertisement_keys.split(',')])
+        else:
+            return JSONResponse(
+                content={"error": f"Invalid Hashed Advertisement Key(s): {advertisement_keys}"},
+                status_code=400)
     return get_report_from_upstream(advertisement_keys, hours)
 
 
@@ -270,13 +283,18 @@ async def report_decryption(
     invalid_private_keys = set()
 
     key_dict = {}
-    re_exp = r"^[-A-Za-z0-9+/]*={0,3}$"
     for key in private_keys.strip().split(','):
-        if len(key) != 40 or not re.match(re_exp, key):
+
+        key_san = input_sanitize(key)
+        if key_san == "":
             invalid_private_keys.add(key)
         else:
-            if len(key) > 0:
-                valid_private_keys.add(key)
+            if len(key_san) == 40:
+                valid_private_keys.add(key_san)
+            elif len(key_san) == 56:
+                valid_private_keys.add(base64.b64encode(bytes.fromhex(key_san)).decode("ascii"))
+            else:
+                invalid_private_keys.add(key)
 
     for key in valid_private_keys:
         try:
