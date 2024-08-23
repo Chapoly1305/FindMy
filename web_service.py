@@ -267,8 +267,8 @@ async def multiple_device_encrypted_reports(
     return get_report_from_upstream(advertisement_keys, hours)
 
 
-@app.post("/Decryption/", summary="Decrypt reports for one or many devices.")
-async def report_decryption(
+@app.post("/SingleDecrypt/", summary="Decrypt reports for one or many devices.")
+async def report_decrypt_single(
         private_keys: Annotated[str | None, Header(
             description="**Private Key is a secret and shall not be provided to any untrusted website!**")] = None,
         reports: UploadFile = File(..., max_size=5 * 1024 * 1024,
@@ -354,7 +354,99 @@ async def report_decryption(
     return valid_reports
 
 
-@app.post("/DecryptToKML/", summary="Decrypt reports for one or many devices.")
+@app.post("/MultipleDecrypt/", summary="Decrypt reports for one or many devices.")
+async def report_decrypt_multiple(
+        private_keys: UploadFile = File(..., description="File containing private keys, one per line"),
+        reports: UploadFile = File(...,
+                                   description="The JSON response from MultipleDeviceEncryptedReports or SingleDeviceEncryptedReports"),
+        skip_invalid: bool = Form(False, description="Ignore report and private key mismatch")
+):
+    """
+    Upload the JSON response from MultipleDeviceEncryptedReports or SingleDeviceEncryptedReports,<br>
+    and the private key(s) in base64 format to decrypt the reports.<br>
+    Choose True or False to skip any format invalid private key <br>
+    """
+    valid_private_keys = set()
+    invalid_private_keys = set()
+
+    key_dict = {}
+    # Read private keys from file
+    private_keys_content = await private_keys.read()
+    private_keys_list = private_keys_content.decode().strip().split('\n')
+    for key in private_keys_list:
+        key_san = input_sanitize(key)
+        if key_san == "":
+            invalid_private_keys.add(key)
+        else:
+            if len(key_san) == 40:
+                valid_private_keys.add(key_san)
+            elif len(key_san) == 56:
+                valid_private_keys.add(base64.b64encode(bytes.fromhex(key_san)).decode("ascii"))
+            else:
+                invalid_private_keys.add(key)
+                logging.debug(f"Invalid Key kml, length {len(key_san)}")
+
+    valid_reports = {}
+    invalid_reports = set()
+
+    try:
+        loaded_reports = json.loads(reports.file.read())
+        logging.debug("JSON Loaded")
+        if loaded_reports['statusCode'] == '200':
+            logging.debug("Status Code 200")
+        else:
+            return JSONResponse(
+                content={"error": f"Upstream informed an error. {loaded_reports['statusCode']}"},
+                status_code=400)
+
+        reports = loaded_reports['results']
+        for report in reports:
+            logging.debug(f"Processing {report}")
+            if report['id'] in valid_reports:
+                valid_reports[report['id']].append(report)
+            else:
+                logging.debug(f"ID is not in dict, creating list and adding ...")
+                valid_reports[report['id']] = []
+                valid_reports[report['id']].append(report)
+
+    except Exception as e:
+        logging.error(f"JSON Decode Failed: {e}", exc_info=True)
+        return JSONResponse(
+            content={"error": f"Invalid JSON Format, Report Decode Failed"},
+            status_code=400)
+
+    if len(valid_reports) == 0:
+        return JSONResponse(
+            content={"error": f"No valid reports found"},
+            status_code=400)
+    for key in valid_private_keys:
+        try:
+            key_dict[private_to_hashed_key(key)] = key
+        except Exception as e:
+            logging.error(f"Private Key Decode Failed: {e}", exc_info=True)
+            invalid_private_keys.add(key)
+    for hash_key in valid_reports:
+        if hash_key in key_dict:
+            for report in valid_reports.get(hash_key):
+                clear_text = decrypt_payload(report['payload'], key_dict[hash_key])
+                report['decrypted_payload'] = clear_text
+        else:
+            invalid_reports.add(hash_key)
+
+    if len(invalid_reports) > 0 and not skip_invalid:
+        return JSONResponse(
+            content={"error": f"Invalid Key(s): {invalid_reports}"},
+            status_code=400)
+
+    if len(valid_reports) == 0:
+        return JSONResponse(
+            content={"error": f"No valid reports found"},
+            status_code=400)
+
+    return valid_reports
+
+
+@app.post("/MultiDecryptToKML/", summary="Decrypt reports for one or many devices.")
 async def report_decrypt_kml(
         private_keys: UploadFile = File(..., description="File containing private keys, one per line"),
         reports: UploadFile = File(...,
