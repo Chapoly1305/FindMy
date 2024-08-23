@@ -8,13 +8,15 @@ import sqlite3
 import struct
 from typing import Annotated
 
+import simplekml
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from fastapi import FastAPI, UploadFile, Header, Body
 
 import requests
 from fastapi.params import Query, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from pytz import timezone
 
 from request_reports import getAuth
 from cores.pypush_gsa_icloud import icloud_login_mobileme, generate_anisette_headers
@@ -307,10 +309,131 @@ async def report_decryption(
 
     if len(invalid_reports) > 0 and not skip_invalid:
         return JSONResponse(
-            content={"error": f"Invalid Hashed Advertisement Base64 Key(s): {invalid_reports}"},
+            content={"error": f"Invalid Key(s): {invalid_reports}"},
             status_code=400)
 
     return valid_reports
+
+
+@app.post("/DecryptToKML/", summary="Decrypt reports for one or many devices.")
+async def report_decrypt_kml(
+        private_keys: Annotated[str | None, Header(
+            description="**Private Key is a secret and shall not be provided to any untrusted website!**")] = None,
+        reports: UploadFile = File(..., max_size=5 * 1024 * 1024,
+                                   description="The JSON response from MultipleDeviceEncryptedReports or "
+                                               "SingleDeviceEncryptedReports"),
+        skip_invalid: bool = Query(description="Ignore report and private mismatch", default=False)):
+    """
+    Upload the JSON response from MultipleDeviceEncryptedReports or SingleDeviceEncryptedReports,<br>
+    and the private key(s) in base64 format to decrypt the reports.<br>
+    Choose True or False to skip any format invalid private key <br>
+    """
+    valid_private_keys = set()
+    invalid_private_keys = set()
+
+    key_dict = {}
+    re_exp = r"^[-A-Za-z0-9+/]*={0,3}$"
+    for key in private_keys.strip().split(','):
+        if len(key) != 40 or not re.match(re_exp, key):
+            invalid_private_keys.add(key)
+        else:
+            if len(key) > 0:
+                valid_private_keys.add(key)
+
+    for key in valid_private_keys:
+        try:
+            key_dict[private_to_hashed_key(key)] = key
+        except Exception as e:
+            logging.error(f"Private Key Decode Failed: {e}", exc_info=True)
+            invalid_private_keys.add(key)
+
+    valid_reports = {}
+    invalid_reports = set()
+
+    try:
+        loaded_reports = json.loads(reports.file.read())
+        logging.debug("JSON Loaded")
+        if loaded_reports['statusCode'] == '200':
+            logging.debug("Status Code 200")
+        else:
+            return JSONResponse(
+                content={"error": f"Upstream informed an error. {loaded_reports['statusCode']}"},
+                status_code=400)
+
+        reports = loaded_reports['results']
+        for report in reports:
+            logging.debug(f"Processing {report}")
+            if report['id'] in valid_reports:
+                valid_reports[report['id']].append(report)
+            else:
+                logging.debug(f"ID is not in dict, creating list and adding ...")
+                valid_reports[report['id']] = []
+                valid_reports[report['id']].append(report)
+
+    except Exception as e:
+        logging.error(f"JSON Decode Failed: {e}", exc_info=True)
+        return JSONResponse(
+            content={"error": f"Invalid JSON Format, Report Decode Failed"},
+            status_code=400)
+
+    if len(valid_reports) == 0:
+        return JSONResponse(
+            content={"error": f"No valid reports found"},
+            status_code=400)
+
+    for hash_key in valid_reports:
+        if hash_key in key_dict:
+            for report in valid_reports.get(hash_key):
+                clear_text = decrypt_payload(report['payload'], key_dict[hash_key])
+                report['decrypted_payload'] = clear_text
+        else:
+            invalid_reports.add(hash_key)
+
+    if len(invalid_reports) > 0 and not skip_invalid:
+        return JSONResponse(
+            content={"error": f"Invalid Hashed Advertisement Base64 Key(s): {invalid_reports}"},
+            status_code=400)
+
+    # Create a new KML object
+    kml = simplekml.Kml()
+    ny_tz = timezone('America/New_York')
+
+    # Locate a collection of reports by using Base64 of Hashed Public Key
+    for device_reports in valid_reports:
+        for report in valid_reports[device_reports]:
+            payload = report['decrypted_payload']
+            timestamp = payload['timestamp']
+            confidence = payload['confidence']
+
+            print(f"Original timestamp: {timestamp}")
+
+            # Check if timestamp is in milliseconds
+            if timestamp > 1e12:  # If timestamp is in milliseconds
+                timestamp = timestamp / 1000  # Convert to seconds
+
+            utc_time = datetime.datetime.utcfromtimestamp(timestamp)
+            utc_time = utc_time.replace(tzinfo=timezone('UTC'))
+            lat = payload['lat']
+            lon = payload['lon']
+
+            ny_time = utc_time.astimezone(ny_tz)
+            time_str = ny_time.strftime('%Y-%m-%d %H:%M:%S %Z')
+
+            # Debug print
+            print(f"Processed time: {time_str}")
+
+            # Create a placemark for each point
+            pnt = kml.newpoint(name=time_str, coords=[(lon, lat)])
+            pnt.timestamp.when = ny_time.isoformat()  # Set the timestamp for the placemark
+
+    kml_string = kml.kml()
+    return Response(
+        content=kml_string,
+        media_type="application/vnd.google-earth.kml+kml",
+        headers={
+            "Content-Disposition": "attachment; filename=report.kml"
+        }
+    )
 
 
 @app.post("/KeyToMonitor/", summary="Add a key to monitor db.")
