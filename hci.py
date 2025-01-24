@@ -16,6 +16,28 @@ def validate_hex_input(hex_string: str) -> bool:
         return False
     return bool(re.match(r'^[0-9a-fA-F]{56}$', hex_string))
 
+def validate_base64_input(base64_string: str) -> bool:
+    """
+    Validate that the input string is a valid base64 string that will decode to 28 bytes.
+    Returns True if valid, False otherwise.
+    """
+    try:
+        # Attempt to decode the base64 string
+        decoded = base64.b64decode(base64_string)
+        # Check if it decodes to exactly 28 bytes
+        return len(decoded) == 28
+    except Exception:
+        return False
+
+def base64_to_hex(base64_string: str) -> str:
+    """
+    Convert a base64 string to its hexadecimal representation.
+    Returns the hex string.
+    """
+    # Decode base64 to bytes
+    decoded_bytes = base64.b64decode(base64_string)
+    # Convert bytes to hex string
+    return decoded_bytes.hex()
 
 class Payload:
     def __init__(self, public_key: str, adapter_name: str, instance: str):
@@ -81,8 +103,8 @@ class Payload:
                            "0x08", "0x0036",
                            self.instance,  # Advertising_Handle
                            "13", "00",  # Advertising_Event_Properties
-                           "00", "00", "50",  # Primary_Advertising_Interval_Min
-                           "00", "00", "70",  # Primary_Advertising_Interval_Max
+                           "50", "00", "00",  # Primary_Advertising_Interval_Min (0x500000 for 50ms)
+                           "70", "00", "00",  # Primary_Advertising_Interval_Max (0x700000 for 70ms)
                            "07",  # Primary_Advertising_Channel_Map
                            "01" if self.addr_type == "random" else "00",  # Own_Address_Type
                            "01",  # Peer_Address_Type
@@ -133,30 +155,62 @@ class Payload:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="BLE advertising script with hex input")
+    description = """
+    Bluetooth Low Energy Advertising Script
+    
+    Basic Usage:
+        sudo python3 hci.py --hex <56_CHAR_HEX>
+        sudo python3 hci.py --base64 <BASE64_STRING>
+    
+    Example with specific adapter and instance:
+        sudo python3 hci.py --hex 7779d8492fc611545b472501f00dc131b04201ecf9d91431a8f88a75 --adapter hci0 --instance 05
+        sudo python3 hci.py --base64 d3nYSS/GEVRbRyUB8A3BMbBCAez52RQxqPiKdQ== --adapter hci0 --instance 05
+    
+    Required Arguments (choose one):
+        --hex        56-character hexadecimal string (28 bytes)
+                    Example: 7779d8492fc611545b472501f00dc131b04201ecf9d91431a8f88a75
+        --base64    Base64 encoded string (decodes to 28 bytes)
+                    Example: d3nYSS/GEVRbRyUB8A3BMbBCAez52RQxqPiKdQ==
+    
+    Optional Arguments:
+        --adv_method     Choose advertising method (default: "extended")
+                        extended: Use BLE 5.0 extended advertising
+                        traditional: Use traditional advertising (not implemented)
+        --instance      Advertisement instance index (default: "05")
+                        Different adapters support different quantities
+        --adapter      Bluetooth adapter name (default: "hci0")
+    """
+    parser = argparse.ArgumentParser(description=description,
+                                   formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    # Add input group for mutually exclusive hex
+    # Add input group for mutually exclusive hex or base64
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--hex", help="56-character hexadecimal string (28 bytes)")
+    input_group.add_argument("--base64", help="Base64 encoded string (decodes to 28 bytes)")
 
     parser.add_argument("--adv_method",
                         choices=["traditional", "extended"],
                         default="extended",
                         help="Choose the advertising method (extended)"
-                             "\ntraditional: Use the traditional advertising method e.g., OCF 0x0006, 0x0008, 0x000a"
-                             "\nextended: Use the BLE5.0 extended advertising method e.g., OCF 0x0036, 0x0037, 0x0039")
+                             "\ntraditional: Use the traditional advertising method"
+                             "\nextended: Use the BLE5.0 extended advertising method")
 
     parser.add_argument("--instance", help="Advertisement instance index. (05)", default="05")
     parser.add_argument("--adapter", '-d', help="Bluetooth adapter name. (hci0)", default="hci0")
 
     args = parser.parse_args()
 
-    # Validate and process input
+    # Process and validate input
     if args.hex:
         if not validate_hex_input(args.hex):
             print("Error: Invalid hex input. Must be exactly 56 hexadecimal characters (0-9, a-f, A-F)")
             return
         input_hex = args.hex
+    else:  # args.base64
+        if not validate_base64_input(args.base64):
+            print("Error: Invalid base64 input. Must decode to exactly 28 bytes")
+            return
+        input_hex = base64_to_hex(args.base64)
 
     # Create payload and start advertising
     msg = Payload(input_hex, args.adapter, args.instance)

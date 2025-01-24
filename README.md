@@ -124,20 +124,30 @@ The OpenHayStack HCI.py has a problem that it needs to modify the public address
 **Root Privilege Required.** 
 
 ```bash
-# Basic Usage
-sudo python3 hci.py --hex <56_CHAR_HEX>
+usage: hci.py [-h] (--hex HEX | --base64 BASE64) [--instance INSTANCE] [--adapter ADAPTER]
 
-# Using a specific adapter with given adapter and instance id:
-sudo python3 hci.py --hex 112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF --adapter hci0 --instance 05
+    Bluetooth Low Energy Advertising Script
+    
+    Basic Usage:
+        sudo python3 hci.py --hex <56_CHAR_HEX>
+        sudo python3 hci.py --base64 <BASE64_STRING>
+    
+    Example with specific adapter and instance:
+        sudo python3 hci.py --hex 7779d8492fc611545b472501f00dc131b04201ecf9d91431a8f88a75 --adapter hci0 --instance 05
+        sudo python3 hci.py --base64 d3nYSS/GEVRbRyUB8A3BMbBCAez52RQxqPiKdQ== --adapter hci0 --instance 05
+    
+    Required Arguments (choose one):
+        --hex        56-character hexadecimal string (28 bytes)
+                    Example: 7779d8492fc611545b472501f00dc131b04201ecf9d91431a8f88a75
+        --base64    Base64 encoded string (decodes to 28 bytes)
+                    Example: d3nYSS/GEVRbRyUB8A3BMbBCAez52RQxqPiKdQ==
+    
+    Optional Arguments:
+        --instance      Advertisement instance index (default: "05")
+                        Different adapters support different quantities
+        --adapter      Bluetooth adapter name (default: "hci0")
+    
 
-# Required Argument
-# --hex: Paste your public key here. We expect a 56-character hexadecimal string.
-#        Example: `--hex 112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF`
-
-# Optional Arguments
-# --adv_method`: Choose the advertising method (default: "extended"). extended: Use BLE 5.0 extended advertising. traditional: Use traditional advertising (not yet implemented)
-# --instance: Advertisement instance index (default: "05"). Usually, the adapter can advertise with multiple instances. Different adapter supports different quantity.
-# --adapter: Bluetooth adapter name (default: "hci0")
 ```
 
 **Here is the explanation how it works.**
