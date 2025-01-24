@@ -40,10 +40,21 @@ If docker is not applicable, you may setup [manually](https://github.com/Dadoum/
 curl -I http://localhost:6969
 ```
 
-You will likely receive a response of, 
+You will receive a response like below. 
 
 ```json
-{"X-Apple-I-Client-Time":"2025-01-24T15:28:51Z","X-Apple-I-MD":"AAAABQAAABDKVqqoAAAAijx167JpHNPfAAAABA==","X-Apple-I-MD-LU":"3AAAA12E405E273D93721E8B171AAAA2B11138C59ABCDCCCC59E9133DD84FABC","X-Apple-I-MD-M":"P5bJSBx8nqXL0vmoMMTCrSxAAAAAAAAAAA3VXQXnL2Vm/lpm/40HqLNIJ/zmvo0WnjxDayJYlTX","X-Apple-I-MD-RINFO":"17106176","X-Apple-I-SRL-NO":"0","X-Apple-I-TimeZone":"UTC","X-Apple-Locale":"en_US","X-MMe-Client-Info":"<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>","X-Mme-Device-Id":"FE1ED333-1111-4321-1234-68AEC074E926"}
+{
+  "X-Apple-I-Client-Time": "...",
+  "X-Apple-I-MD": "...",
+  "X-Apple-I-MD-LU": "...",
+  "X-Apple-I-MD-M": "...",
+  "X-Apple-I-MD-RINFO": "...",
+  "X-Apple-I-SRL-NO": "0",
+  "X-Apple-I-TimeZone": "UTC",
+  "X-Apple-Locale": "en_US",
+  "X-MMe-Client-Info": "<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>",
+  "X-Mme-Device-Id": "..."
+}
 ```
 
 4. Then, clone this repository, Navigate to `FindMy` directory, and install the required python packages:
@@ -62,43 +73,106 @@ pip3 install -r requirements.txt
 python3 web_service.py
 ```
 
-
-
-Hint: This web service will die if the shell exited or system reboot. You could use `nohup`, `screen`, or set up a systemd service to keep it alive.
-
-
+**Hint:** This web service will die if the shell exited or system reboot. You could use `nohup`, `screen`, or set up a systemd service to keep it alive.
 
 ## API Usage
 
 The APIs are created with FastAPI, the documentations are written inline and can be accessed on website path http://127.0.0.1:8000/docs or http://127.0.0.1:8000/redoc. 
 
 
+
+
 ## Traditional Key File Method
 
-### generate_keys.py
+### Using the Key Generation Tool
 
-Use the `generate_keys.py` script to generate the required keys. The script will generate a `.keys`
-or multiple files for each device you want to use. Each `.keys` file will contain the private key, the public key
-(also called advertisement key) and the hashed advertisement key. As the name suggests, the private key is a secret
-and should not be shared. The public key (advertisement key) is used for broadcasting the BLE message, this is also
-being asked by the `hci.py` script in openhaystack project. The hashed advertisement key is for requesting location
-reports from Apple.
+The `generate_keys.py` script creates the cryptographic keys needed for device tracking. Here's how to use it:
 
-### request_reports.py
-
-Use the `request_reports.py` script to request location reports from Apple. The script will read the `.keys` files and
-request location reports for each device. The script will also attempt to log in and provided Apple account and save
-the session cookies in `auth.json` file. The reports are stored in the `reports` database.
-
-
-
-The anisetter docker service shall run on the same device of this project. If the anisetter has started, then run:
-
+**Basic Key Generation**
 ```bash
-./request_reports.py # Without any arguments, it will read all the .keys files under current directory.
+# Generate a single key pair
+python3 generate_keys.py
+
+# Generate multiple key pairs
+python3 generate_keys.py -n 5
+
+# Add a prefix to key files
+python3 generate_keys.py -p mydevice
+
+# Command Line Options
+# -n, --nkeys: Number of key pairs to generate (default: 1)
+# -p, --prefix: Prefix for the generated key files
+# -y, --yaml: Generate a YAML file containing the list of keys
+# -v, --verbose: Print keys as they are generated
 ```
 
 
+**Understanding the Generated Keys**
+Each `.keys` file contains three components:
+1. Private Key: Keep this secret! Used for decrypting location reports
+2. Advertisement Key: Used for broadcasting BLE messages
+3. Hashed Advertisement Key: Used for requesting location reports from Apple
+
+The keys are stored in the `keys/` directory with filenames based on their hashed values.
+
+
+
+### Advertise with Improved HCI.py on Linux
+
+The OpenHayStack HCI.py has a problem that it needs to modify the public address of an adapter. However, not all the adapter support address modification. The HCI.py provided in OpenHayStack works only on specific chip (Broadcom for Raspberry Pi). To advertise on other Linux, we offer an improved version. With this version, you will able to advertise with basically any adapter supporting BLE. 
+
+**Root Privilege Required.** 
+
+```bash
+# Basic Usage
+sudo python3 hci.py --hex <56_CHAR_HEX>
+
+# Using a specific adapter with given adapter and instance id:
+sudo python3 hci.py --hex 112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF --adapter hci0 --instance 05
+
+# Required Argument
+# --hex: Paste your public key here. We expect a 56-character hexadecimal string.
+#        Example: `--hex 112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF`
+
+# Optional Arguments
+# --adv_method`: Choose the advertising method (default: "extended"). extended: Use BLE 5.0 extended advertising. traditional: Use traditional advertising (not yet implemented)
+# --instance: Advertisement instance index (default: "05"). Usually, the adapter can advertise with multiple instances. Different adapter supports different quantity.
+# --adapter: Bluetooth adapter name (default: "hci0")
+```
+
+**Here is the explanation how it works.**
+
+The adapter on Linux generally supports HCI command, defined in Bluetooth specification. The script use the `hcitool` to directly configure the address and send BLE advertisement. The advertisement is sent using random static address, instead of public address. This is critically important because the OpenHayStack method of using public address will slowly lossing coverage when Apple deploying mitigation on iOS 18.2. 
+
+
+
+### Advertise and Track without Root Privileges
+
+Our recent research shows the device maybe tracked without using root privileges. Our discovery will be published on **USENIX 2025**! Please stay tuned, we will provided more information and software once the paper is released to public. 
+
+
+
+### Requesting Location Reports
+
+The `request_reports.py` script fetches location data for your tracked devices from Apple's servers.
+
+**Basic Usage**
+```bash
+# Request reports for all keys in the keys directory
+python3 request_reports.py
+
+# Request reports for specific time period
+python3 request_reports.py -H 48  # Last 48 hours
+
+# Request reports for keys with specific prefix
+python3 request_reports.py -p mydevice
+
+#Command Line Options
+# -H, --hours: Only show reports newer than specified hours (default: 24)
+# -p, --prefix: Only use keyfiles starting with this prefix
+# -r, --regen: Regenerate search-party-token
+# -t, --trusteddevice: Use trusted device for 2FA instead of SMS
+```
 
 
 
