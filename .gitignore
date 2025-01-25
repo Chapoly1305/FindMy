@@ -1,0 +1,6 @@
+venv
+.venv
+nohup.out
+.vscode
+__pycache__
+keys/
