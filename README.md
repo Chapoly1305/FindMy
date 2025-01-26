@@ -119,9 +119,7 @@ The keys are stored in the `keys/` directory with filenames based on their hashe
 
 ### Advertise with Improved HCI.py on Linux
 
-The OpenHayStack HCI.py has a problem that it needs to modify the public address of an adapter. However, not all the adapter support address modification. The HCI.py provided in OpenHayStack works only on specific chip (Broadcom for Raspberry Pi). To advertise on other Linux, we offer an improved version. With this version, you will able to advertise with basically any adapter supporting BLE. 
-
-**Root Privilege Required.** 
+The OpenHayStack HCI.py has limitations when modifying Bluetooth adapter public addresses, as not all adapters support this functionality. The original HCI.py only works with specific Broadcom chips used in Raspberry Pi by alternating adapter public address. Since iOS 18.2, **iPhones and iPads only accept advertisements from random static addresses**. We've developed an improved version that sends advertisement with correct address type. As the original version, **Root Privilege Required.** 
 
 ```bash
 usage: hci.py [-h] (--hex HEX | --base64 BASE64) [--instance INSTANCE] [--adapter ADAPTER]
