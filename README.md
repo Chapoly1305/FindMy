@@ -156,7 +156,8 @@ The adapter on Linux generally supports HCI command, defined in Bluetooth specif
 
 ### Advertise and Track without Root Privileges
 
-Our recent research shows the device maybe tracked without using root privileges. Our discovery will be published on **USENIX 2025**! Please stay tuned, we will provided more information and software once the paper is released to public. 
+Our recent research shows the device maybe tracked without using root privileges. Our discovery will be published on **USENIX Security 2025**! 
+As usual, our research is open-sourced, you can find it at [nRootTag](https://nroottag.github.io/).
 
 
 
