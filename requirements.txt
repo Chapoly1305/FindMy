@@ -9,3 +9,5 @@ certifi
 paho-mqtt
 pycryptodome
 python-multipart
+simplekml
+pytz
