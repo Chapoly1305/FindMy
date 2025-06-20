@@ -43,6 +43,7 @@ import uvicorn
 import time
 import paho.mqtt.publish as publish
 import certifi
+import argparse
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -57,11 +58,18 @@ app = FastAPI(
 app.last_publish_time = 0
 
 CONFIG_PATH = os.path.dirname(os.path.realpath(__file__)) + "/keys/auth.json"
+
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='FindMy Gateway API Server')
+parser.add_argument('--auth', type=str, choices=['sms', 'trusted_device'], default='sms',
+                    help='Authentication method to use: sms or trusted_device (default: sms)')
+args = parser.parse_args()
+
 if os.path.exists(CONFIG_PATH):
     with open(CONFIG_PATH, "r") as f:
         j = json.load(f)
 else:
-    mobileme = icloud_login_mobileme(second_factor='sms')
+    mobileme = icloud_login_mobileme(second_factor=args.auth)
     j = {'dsid': mobileme['dsid'],
          'searchPartyToken': mobileme['delegates']['com.apple.mobileme']['service-data']['tokens'][
              'searchPartyToken']}
