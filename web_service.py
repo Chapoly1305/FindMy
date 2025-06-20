@@ -69,6 +69,10 @@ if os.path.exists(CONFIG_PATH):
     with open(CONFIG_PATH, "r") as f:
         j = json.load(f)
 else:
+    # Create keys directory if it doesn't exist
+    keys_dir = os.path.dirname(CONFIG_PATH)
+    os.makedirs(keys_dir, exist_ok=True)
+    
     mobileme = icloud_login_mobileme(second_factor=args.auth)
     j = {'dsid': mobileme['dsid'],
          'searchPartyToken': mobileme['delegates']['com.apple.mobileme']['service-data']['tokens'][
@@ -78,6 +82,10 @@ else:
 
 dsid = j['dsid']
 searchPartyToken = j['searchPartyToken']
+
+# Ensure keys directory exists before creating database
+keys_dir = os.path.dirname(os.path.realpath(__file__)) + '/keys'
+os.makedirs(keys_dir, exist_ok=True)
 
 sq3db = sqlite3.connect(os.path.dirname(os.path.realpath(__file__)) + '/keys/reports.db')
 _sq3 = sq3db.cursor()
