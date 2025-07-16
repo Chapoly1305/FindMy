@@ -21,6 +21,10 @@ guides found on the internet.
 **Using your personal Apple ID is strongly discouraged. You are recommended to create a blank Apple ID for experimental purpose.**  If you ran into issue of "KeyError service-data", especially you are using an existing account rather than a new account, you may want to refer to https://github.com/Chapoly1305/FindMy/issues/9 .
 
 
+🌐 A final result will be exactly like this website: https://findmy.chapoly1305[dot]com/docs
+
+**Note:** You can use this website for testing purposes, but it operates on a extremely suspiciously low cost. VPS I could afford, so I cannot guarantee the security of your data or its availability. 
+
 ### Steps
 
 1. Install [docker](https://docs.docker.com/engine/install/ubuntu/) and Python3-pip. Python3-venv is also strongly recommended.
