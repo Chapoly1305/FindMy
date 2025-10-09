@@ -17,6 +17,9 @@ ENV PATH="/app/FindMy/venv/bin:$PATH"
 # Install dependencies
 RUN pip3 install -r requirements.txt
 
+# Create volume for keys directory to persist data
+VOLUME /app/FindMy/keys
+
 # Expose port 8000
 EXPOSE 8000
 

@@ -102,14 +102,17 @@ docker run -d \
   -e FINDMY_ACCOUNT="your-apple-id@example.com" \
   -e FINDMY_PASS="your-password" \
   -p 8000:8000 \
+  -v $(pwd)/keys:/app/FindMy/keys \
   --network host \
   findmy-service
 ```
 
 **Note:**
+- `-v $(pwd)/keys:/app/FindMy/keys` mounts a local `keys` directory to persist authentication tokens and database files
 - `--network host` is used to allow the container to access the anisette-v3-server running on localhost:6969
 - Make sure the anisette-v3-server is running before starting this container
 - Using `--restart always` ensures the container automatically restarts after system reboot
+- The `keys` directory will be created automatically if it doesn't exist, containing `auth.json` and `reports.db`
 
 ### Environment Variables
 
