@@ -31,9 +31,13 @@ ANISETTE_URL = 'http://localhost:6969'  # https://github.com/Dadoum/anisette-v3-
 
 def icloud_login_mobileme(username='', password='', second_factor='sms'):
     if not username:
-        username = input('Apple ID: ')
+        username = os.environ.get('FINDMY_ACCOUNT', '')
+        if not username:
+            username = input('Apple ID: ')
     if not password:
-        password = getpass('Password: ')
+        password = os.environ.get('FINDMY_PASS', '')
+        if not password:
+            password = getpass('Password: ')
 
     g = gsa_authenticate(username, password, second_factor)
     pet = g["t"]["com.apple.gs.idms.pet"]["token"]

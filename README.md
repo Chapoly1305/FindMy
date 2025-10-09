@@ -61,8 +61,9 @@ You will receive a response like below.
 }
 ```
 
-4. Then, clone this repository, Navigate to `FindMy` directory, and install the required python packages:
+4. Then, clone this repository, Navigate to `FindMy` directory, and deploy thorough interactive method by install the required python packages, or use Docker:
 
+## Interactive Deployment (easier for debugging)
 ```bash
 git clone https://github.com/Chapoly1305/FindMy.git
 cd FindMy
@@ -78,6 +79,43 @@ python3 web_service.py
 ```
 
 **Hint:** This web service will die if the shell exited or system reboot. You could use `nohup`, `screen`, or set up a systemd service to keep it alive.
+
+## Docker Deployment
+
+If you prefer to run the web service in a Docker container, you can use the provided Dockerfile.
+
+### Building the Docker Image
+
+```bash
+docker build -t findmy-service .
+```
+
+### Running the Container
+
+**Important:** You need to pass your Apple ID credentials as environment variables when running the container to avoid interactive prompts:
+Again, using your personal Apple ID is strongly discouraged. Create a separate Apple ID for this service.
+
+```bash
+docker run -d \
+  --name findmy \
+  --restart always \
+  -e FINDMY_ACCOUNT="your-apple-id@example.com" \
+  -e FINDMY_PASS="your-password" \
+  -p 8000:8000 \
+  --network host \
+  findmy-service
+```
+
+**Note:**
+- `--network host` is used to allow the container to access the anisette-v3-server running on localhost:6969
+- Make sure the anisette-v3-server is running before starting this container
+- Using `--restart always` ensures the container automatically restarts after system reboot
+
+### Environment Variables
+
+- `FINDMY_ACCOUNT`: Your Apple ID email address
+- `FINDMY_PASS`: Your Apple ID password
+
 
 ## API Usage
 
