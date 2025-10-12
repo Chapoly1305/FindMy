@@ -82,42 +82,94 @@ python3 web_service.py
 
 ## Docker Deployment
 
-If you prefer to run the web service in a Docker container, you can use the provided Dockerfile.
+If you prefer to run the web service in a Docker container, pre-built images are available on Docker Hub at `chiba765/findmy-webapi`.
 
-### Building the Docker Image
+### Step 1: Interactive Login (First Time Setup)
+
+Before running the service as a daemon, you need to complete the initial authentication interactively:
 
 ```bash
-docker build -t findmy-service .
+# Create keys directory if it doesn't exist
+mkdir -p keys
+
+# Run interactive container for initial login
+docker run -it --rm \
+  --network host \
+  -v "$(pwd):/app/FindMy" \
+  chiba765/findmy-webapi:base \
+  python3 web_service.py
 ```
 
-### Running the Container
+**Authentication Options:**
+```bash
+# For SMS 2FA (default)
+python3 web_service.py
 
-**Important:** You need to pass your Apple ID credentials as environment variables when running the container to avoid interactive prompts:
-Again, using your personal Apple ID is strongly discouraged. Create a separate Apple ID for this service.
+# For trusted device 2FA
+python3 web_service.py --auth trusted_device
+```
+
+After entering your Apple ID, password, and 2FA code, the `keys/auth.json` file will be created and persisted on your host machine. You can keep the web service at frontground if you prefer this method. Otherwise, assume you wish to run this service as daemon, you can press `Ctrl+C` to stop the service once authentication is complete.
+
+### Step 2: Run as Daemon (Optional)
+
+Authentication is only required at the first time. Once authentication is complete and `keys/auth.json` exists, you can run the service as a daemon:
 
 ```bash
 docker run -d \
-  --name findmy \
+  --name findmy-service \
   --restart always \
-  -e FINDMY_ACCOUNT="your-apple-id@example.com" \
-  -e FINDMY_PASS="your-password" \
-  -p 8000:8000 \
-  -v $(pwd)/keys:/app/FindMy/keys \
   --network host \
-  findmy-service
+  -v "$(pwd):/app/FindMy" \
+  chiba765/findmy-webapi:base \
+  python3 web_service.py
 ```
 
-**Note:**
-- `-v $(pwd)/keys:/app/FindMy/keys` mounts a local `keys` directory to persist authentication tokens and database files
-- `--network host` is used to allow the container to access the anisette-v3-server running on localhost:6969
+**Managing the Service:**
+
+```bash
+# View logs
+docker logs findmy-service
+docker logs -f findmy-service  # Follow logs in real-time
+
+# Stop the service
+docker stop findmy-service
+
+# Start the service
+docker start findmy-service
+
+# Restart the service
+docker restart findmy-service
+
+# Remove the container
+docker stop findmy-service && docker rm findmy-service
+```
+
+**Important Notes:**
+- `--network host` is required to allow the container to access the anisette-v3-server running on localhost:6969
 - Make sure the anisette-v3-server is running before starting this container
 - Using `--restart always` ensures the container automatically restarts after system reboot
-- The `keys` directory will be created automatically if it doesn't exist, containing `auth.json` and `reports.db`
+- The `keys` directory will contain `auth.json` and `reports.db`
 
-### Environment Variables
+### Re-authenticating
 
-- `FINDMY_ACCOUNT`: Your Apple ID email address
-- `FINDMY_PASS`: Your Apple ID password
+If you need to re-authenticate (e.g., switching Apple ID or token expired):
+
+```bash
+# Stop the daemon if running
+docker stop findmy-service
+
+# Remove the authentication file
+rm keys/auth.json
+
+# Run interactive login again
+docker run -it --rm \
+  --network host \
+  -v "$(pwd):/app/FindMy" \
+  chiba765/findmy-webapi:base \
+  python3 web_service.py
+```
+
 
 
 ## API Usage
