@@ -1,0 +1,17 @@
+FROM python:3.12
+
+# Set working directory
+WORKDIR /app/FindMy
+
+# Copy only requirements first for better layer caching
+COPY requirements.txt .
+
+# Install dependencies directly (no venv needed in container)
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+# Verify installation
+RUN python3 -c "import fastapi; import uvicorn; print('Dependencies installed successfully')"
+
+# This base image contains python3.12 + all dependencies
+# Ready to be used by Dockerfile and Dockerfile.interactive

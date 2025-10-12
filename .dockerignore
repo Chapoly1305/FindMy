@@ -1,0 +1,42 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+venv/
+env/
+ENV/
+
+# Local keys (will be mounted as volume)
+keys/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+!requirements.txt
+
+# Docker files
+Dockerfile*
+.dockerignore
+docker-run.sh
+
+# OS files
+.DS_Store
+Thumbs.db
