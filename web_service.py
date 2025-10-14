@@ -45,7 +45,7 @@ import paho.mqtt.publish as publish
 import certifi
 import argparse
 
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.INFO,)
 
 app = FastAPI(
     title="FindMy Gateway API",
@@ -846,4 +846,4 @@ async def tag_removal(
 
 if __name__ == "__main__":
     getAuth()
-    uvicorn.run("web_service:app", host="127.0.0.1", port=8000, log_level="error")
+    uvicorn.run("web_service:app", host="127.0.0.1", port=8000, log_level="info")
