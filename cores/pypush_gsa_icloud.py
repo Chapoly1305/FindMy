@@ -91,6 +91,15 @@ def gsa_authenticate(username, password, second_factor='sms'):
 
     r = gsa_authenticated_request({"c": r["c"], "M1": M, "u": username, "o": "complete"})
 
+    # Check if authentication failed
+    if "M2" not in r:
+        print("Authentication failed - likely incorrect password or credentials")
+        if "Status" in r:
+            print(f"Server status: {r['Status']}")
+        else:
+            print(f"Server response: {r}")
+        return None
+
     # Make sure that the server's session key matches our session key (and thus that they are not an imposter)
     usr.verify_session(r["M2"])
     if not usr.authenticated():
