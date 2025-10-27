@@ -45,7 +45,21 @@ import paho.mqtt.publish as publish
 import certifi
 import argparse
 
-logging.basicConfig(level=logging.INFO,)
+# Parse command line arguments (before logging setup)
+parser = argparse.ArgumentParser(description='FindMy Gateway API Server')
+parser.add_argument('--auth', type=str, choices=['sms', 'trusted_device'], default='sms',
+                    help='Authentication method to use: sms or trusted_device (default: sms)')
+parser.add_argument('--log-level', type=str, choices=['debug', 'info', 'error'], default='info',
+                    help='Logging level: debug, info, or error (default: info)')
+args = parser.parse_args()
+
+# Configure logging based on command line argument
+log_level_map = {
+    'debug': logging.DEBUG,
+    'info': logging.INFO,
+    'error': logging.ERROR
+}
+logging.basicConfig(level=log_level_map[args.log_level])
 
 app = FastAPI(
     title="FindMy Gateway API",
@@ -58,12 +72,6 @@ app = FastAPI(
 app.last_publish_time = 0
 
 CONFIG_PATH = os.path.dirname(os.path.realpath(__file__)) + "/keys/auth.json"
-
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='FindMy Gateway API Server')
-parser.add_argument('--auth', type=str, choices=['sms', 'trusted_device'], default='sms',
-                    help='Authentication method to use: sms or trusted_device (default: sms)')
-args = parser.parse_args()
 
 if os.path.exists(CONFIG_PATH):
     with open(CONFIG_PATH, "r") as f:
