@@ -305,48 +305,9 @@ async def single_device_encrypted_reports(
 
     if len(advertisement_key_san) == 64:
         advertisement_key_san = base64.b64encode(bytes.fromhex(advertisement_key_san)).decode("ascii")
-    unix_epoch = int(datetime.datetime.now().timestamp())
-    start_date = unix_epoch - (60 * 60 * hours)
 
-    # New v2 API request format
-    data = {
-        "clientContext": {
-            "policy": "foregroundClient",
-            "clientBundleIdentifier": "com.apple.findmy"
-        },
-        "fetch": [{
-            "secondaryIds": [advertisement_key_san],
-            "keyType": 1,
-            "endDate": unix_epoch * 1000,
-            "ownedDeviceIds": [],
-            "startDateSecondary": start_date * 1000,
-            "startDate": start_date * 1000
-        }]
-    }
-
-    r = requests.post("https://gateway.icloud.com/findmyservice/v2/fetch",
-                      auth=(dsid, searchPartyToken),
-                      headers=generate_anisette_headers(),
-                      json=data)
-
-    response = json.loads(r.content.decode(encoding='utf-8'))
-
-    # Convert new v2 response format to old format for backward compatibility
-    results = []
-    if 'acsnLocations' in response and 'locationPayload' in response['acsnLocations']:
-        for location_data in response['acsnLocations']['locationPayload']:
-            key_id = location_data['id']
-            for location_info in location_data.get('locationInfo', []):
-                results.append({
-                    'id': key_id,
-                    'payload': location_info.get('location', location_info),
-                    'statusCode': 200
-                })
-
-    return {
-        'statusCode': '200',
-        'results': results
-    }
+    # Use the shared function to fetch reports
+    return get_report_from_upstream(advertisement_key_san, hours)
 
 
 @app.post("/MultipleDeviceEncryptedReports/", summary="Retrieve reports for multiple devices at a time.")
