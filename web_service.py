@@ -248,12 +248,15 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
         }]
     }
 
+    logging.debug(f"Request to Apple v2 API: {json.dumps(data, indent=2)}")
+
     r = requests.post("https://gateway.icloud.com/findmyservice/v2/fetch",
                       auth=(dsid, searchPartyToken),
                       headers=generate_anisette_headers(),
                       json=data)
 
     response = json.loads(r.content.decode(encoding='utf-8'))
+    logging.debug(f"Response from Apple v2 API (status {r.status_code}): {json.dumps(response, indent=2)}")
 
     # Convert new v2 response format to old format for backward compatibility
     results = []
