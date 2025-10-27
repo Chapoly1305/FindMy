@@ -45,7 +45,21 @@ import paho.mqtt.publish as publish
 import certifi
 import argparse
 
-logging.basicConfig(level=logging.INFO,)
+# Parse command line arguments (before logging setup)
+parser = argparse.ArgumentParser(description='FindMy Gateway API Server')
+parser.add_argument('--auth', type=str, choices=['sms', 'trusted_device'], default='sms',
+                    help='Authentication method to use: sms or trusted_device (default: sms)')
+parser.add_argument('--log-level', type=str, choices=['debug', 'info', 'error'], default='info',
+                    help='Logging level: debug, info, or error (default: info)')
+args = parser.parse_args()
+
+# Configure logging based on command line argument
+log_level_map = {
+    'debug': logging.DEBUG,
+    'info': logging.INFO,
+    'error': logging.ERROR
+}
+logging.basicConfig(level=log_level_map[args.log_level])
 
 app = FastAPI(
     title="FindMy Gateway API",
@@ -58,12 +72,6 @@ app = FastAPI(
 app.last_publish_time = 0
 
 CONFIG_PATH = os.path.dirname(os.path.realpath(__file__)) + "/keys/auth.json"
-
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='FindMy Gateway API Server')
-parser.add_argument('--auth', type=str, choices=['sms', 'trusted_device'], default='sms',
-                    help='Authentication method to use: sms or trusted_device (default: sms)')
-args = parser.parse_args()
 
 if os.path.exists(CONFIG_PATH):
     with open(CONFIG_PATH, "r") as f:
@@ -101,7 +109,7 @@ _sq3.execute(create_table_query)
 
 # SQL query to create a table named 'report' if it does not exist
 create_table_query = '''CREATE TABLE IF NOT EXISTS reports (
-id_short TEXT, timestamp INTEGER, datePublished INTEGER, payload TEXT, 
+id_short TEXT, timestamp INTEGER, payload TEXT,
 id TEXT, statusCode INTEGER, lat TEXT, lon TEXT, conf INTEGER, PRIMARY KEY(id,payload));'''
 
 # Execute the SQL query
@@ -231,14 +239,77 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
 
     unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
-    data = {"search": [{"startDate": start_date * 1000, "endDate": unix_epoch * 1000, "ids": advertisement_keys_list}]}
 
-    r = requests.post("https://gateway.icloud.com/acsnservice/fetch",
+    # New v2 API request format
+    data = {
+        "clientContext": {
+            "policy": "foregroundClient",
+            "clientBundleIdentifier": "com.apple.findmy"
+        },
+        "fetch": [{
+            "primaryIds": advertisement_keys_list,
+            "keyType": 1,
+            "endDate": unix_epoch * 1000,
+            "ownedDeviceIds": [],
+            "startDateSecondary": start_date * 1000,
+            "startDate": start_date * 1000
+        }]
+    }
+
+    logging.debug(f"Request to Apple v2 API: {json.dumps(data, indent=2)}")
+
+    r = requests.post("https://gateway.icloud.com/findmyservice/v2/fetch",
                       auth=(dsid, searchPartyToken),
                       headers=generate_anisette_headers(),
                       json=data)
 
-    return json.loads(r.content.decode(encoding='utf-8'))
+    # Log raw response
+    raw_content = r.content.decode(encoding='utf-8')
+    logging.debug(f"Raw response from Apple v2 API (status {r.status_code}, length {len(raw_content)}): {raw_content}")
+
+    # Handle empty response
+    if not raw_content or len(raw_content) == 0:
+        logging.error(f"Empty response from Apple v2 API (status {r.status_code})")
+        return {
+            'statusCode': str(r.status_code),
+            'results': []
+        }
+
+    try:
+        response = json.loads(raw_content)
+        logging.debug(f"Parsed response from Apple v2 API: {json.dumps(response, indent=2)}")
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse JSON response: {e}")
+        return {
+            'statusCode': str(r.status_code),
+            'results': []
+        }
+
+    # Convert new v2 response format to old format for backward compatibility
+    results = []
+    if 'acsnLocations' in response and 'locationPayload' in response['acsnLocations']:
+        for location_data in response['acsnLocations']['locationPayload']:
+            key_id = location_data['id']
+            for location_info in location_data.get('locationInfo', []):
+                # Convert new format to old format
+                # location_info might be a dict with 'location' field, or just a string payload
+                if isinstance(location_info, dict):
+                    payload = location_info.get('location', location_info)
+                else:
+                    payload = location_info
+
+                results.append({
+                    'id': key_id,
+                    'payload': payload,
+                    'statusCode': 200
+                })
+
+    logging.debug(f'Retrieved {len(results)} reports from v2 API')
+
+    return {
+        'statusCode': '200',
+        'results': results
+    }
 
 
 @app.post("/SingleDeviceEncryptedReports/", summary="Retrieve reports for one device at a time.")
@@ -259,18 +330,9 @@ async def single_device_encrypted_reports(
 
     if len(advertisement_key_san) == 64:
         advertisement_key_san = base64.b64encode(bytes.fromhex(advertisement_key_san)).decode("ascii")
-    unix_epoch = int(datetime.datetime.now().timestamp())
-    start_date = unix_epoch - (60 * 60 * hours)
 
-    data = {"search": [{"startDate": start_date * 1000, "endDate": unix_epoch * 1000,
-                        "ids": [advertisement_key_san]}]}
-
-    r = requests.post("https://gateway.icloud.com/acsnservice/fetch",
-                      auth=(dsid, searchPartyToken),
-                      headers=generate_anisette_headers(),
-                      json=data)
-
-    return json.loads(r.content.decode(encoding='utf-8'))
+    # Use the shared function to fetch reports
+    return get_report_from_upstream(advertisement_key_san, hours)
 
 
 @app.post("/MultipleDeviceEncryptedReports/", summary="Retrieve reports for multiple devices at a time.")
@@ -681,13 +743,13 @@ def sync_latest_decrypted_reports():
                 clear_text = decrypt_payload(report['payload'], _sq3.execute(
                     "SELECT private_key FROM tags WHERE hash_adv_key = ?", (report["id"],)).fetchone()[0])
 
-                # id_short TEXT, timestamp INTEGER, datePublished INTEGER, payload TEXT,
+                # id_short TEXT, timestamp INTEGER, payload TEXT,
                 # id TEXT, statusCode INTEGER, lat TEXT, lon TEXT, conf INTEGER
 
                 logging.debug(report)
                 logging.debug(clear_text)
-                query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                parameters = (report["id"][:7], clear_text['timestamp'], report['datePublished'], report['payload'],
+                query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                parameters = (report["id"][:7], clear_text['timestamp'], report['payload'],
                               report['id'], clear_text['status'], clear_text['lat'], clear_text['lon'],
                               clear_text['confidence'])
                 _sq3.execute(query, parameters)
