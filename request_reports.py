@@ -57,6 +57,7 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser()
         parser.add_argument('-H', '--hours', help='only show reports not older than these hours', type=int, default=24)
         parser.add_argument('-p', '--prefix', help='only use keyfiles starting with this prefix', default='')
+        parser.add_argument('-k', '--key', help='comma-separated base64 hashed advertisement keys to query', default='')
         parser.add_argument('-r', '--regen', help='regenerate search-party-token', action='store_true')
         parser.add_argument('-t', '--trusteddevice', help='use trusted device for 2FA instead of SMS',
                             action='store_true')
@@ -67,23 +68,35 @@ if __name__ == "__main__":
 
         privkeys = {}
         names = {}
-        for keyfile in glob.glob(os.path.dirname(os.path.realpath(__file__)) + '/keys/' + args.prefix + '*.keys'):
-            # read key files generated with generate_keys.py
-            with open(keyfile) as f:
-                hashed_adv = priv = ''
-                name = os.path.basename(keyfile)[len(args.prefix):-5]
-                for line in f:
-                    key = line.rstrip('\n').split(': ')
-                    if key[0] == 'Private key':
-                        priv = key[1]
-                    elif key[0] == 'Hashed adv key':
-                        hashed_adv = key[1]
 
-                if priv and hashed_adv:
-                    privkeys[hashed_adv] = priv
-                    names[hashed_adv] = name
-                else:
-                    print(f"Couldn't find key pair in {keyfile}")
+        # If --key argument is provided, use those keys directly
+        if args.key:
+            for idx, hashed_key in enumerate(args.key.strip().split(','), 1):
+                hashed_key = hashed_key.strip()
+                if hashed_key:
+                    # For direct key input, we don't have private keys, so we can't decrypt
+                    # Just use the hashed key for querying
+                    names[hashed_key] = f"key_{idx}"
+                    print(f"Using provided key: {hashed_key} (will not be able to decrypt without private key)")
+        else:
+            # Read key files from disk
+            for keyfile in glob.glob(os.path.dirname(os.path.realpath(__file__)) + '/keys/' + args.prefix + '*.keys'):
+                # read key files generated with generate_keys.py
+                with open(keyfile) as f:
+                    hashed_adv = priv = ''
+                    name = os.path.basename(keyfile)[len(args.prefix):-5]
+                    for line in f:
+                        key = line.rstrip('\n').split(': ')
+                        if key[0] == 'Private key':
+                            priv = key[1]
+                        elif key[0] == 'Hashed adv key':
+                            hashed_adv = key[1]
+
+                    if priv and hashed_adv:
+                        privkeys[hashed_adv] = priv
+                        names[hashed_adv] = name
+                    else:
+                        print(f"Couldn't find key pair in {keyfile}")
 
         unixEpoch = int(datetime.datetime.now().timestamp())
         startdate = unixEpoch - (60 * 60 * args.hours)
@@ -95,7 +108,7 @@ if __name__ == "__main__":
                 "clientBundleIdentifier": "com.apple.findmy"
             },
             "fetch": [{
-                "secondaryIds": list(names.keys()),
+                "primaryIds": list(names.keys()),
                 "keyType": 1,
                 "endDate": unixEpoch * 1000,
                 "ownedDeviceIds": [],
@@ -110,7 +123,20 @@ if __name__ == "__main__":
                           headers=generate_anisette_headers(),
                           json=data)
 
-        response = json.loads(r.content.decode())
+        # Handle response
+        raw_content = r.content.decode()
+        print(f"Response status: {r.status_code}, length: {len(raw_content)}")
+
+        if not raw_content or len(raw_content) == 0:
+            print(f"Empty response from Apple v2 API (status {r.status_code})")
+            response = {'acsnLocations': {'locationPayload': []}}
+        else:
+            try:
+                response = json.loads(raw_content)
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse JSON response: {e}")
+                print(f"Raw content: {raw_content[:200]}...")
+                response = {'acsnLocations': {'locationPayload': []}}
 
         # Parse new v2 response format
         res = []
@@ -119,9 +145,15 @@ if __name__ == "__main__":
                 key_id = location_data['id']
                 for location_info in location_data.get('locationInfo', []):
                     # Convert new format to old format for compatibility
+                    # location_info might be a dict with 'location' field, or just a string payload
+                    if isinstance(location_info, dict):
+                        payload = location_info.get('location', location_info)
+                    else:
+                        payload = location_info
+
                     res.append({
                         'id': key_id,
-                        'payload': location_info.get('location', location_info),
+                        'payload': payload,
                         'statusCode': 200
                     })
 
@@ -139,38 +171,61 @@ if __name__ == "__main__":
         sq3.execute(create_table_query)
 
         for report in res:
-            priv = int.from_bytes(base64.b64decode(privkeys[report['id']]), byteorder='big')
-            data = base64.b64decode(report['payload'])
-            # the following is all copied from https://github.com/hatomist/openhaystack-python, thanks @hatomist!
-            timestamp = int.from_bytes(data[0:4], 'big') + 978307200
+            # Check if we have a private key for this report
+            if report['id'] in privkeys:
+                # Decrypt the report
+                priv = int.from_bytes(base64.b64decode(privkeys[report['id']]), byteorder='big')
+                data = base64.b64decode(report['payload'])
+                # the following is all copied from https://github.com/hatomist/openhaystack-python, thanks @hatomist!
+                timestamp = int.from_bytes(data[0:4], 'big') + 978307200
 
-            if timestamp >= startdate:
-                eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5:62])
-                shared_key = ec.derive_private_key(priv, ec.SECP224R1(), default_backend()).exchange(ec.ECDH(), eph_key)
-                symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[5:62])
-                decryption_key = symmetric_key[:16]
-                iv = symmetric_key[16:]
-                enc_data = data[62:72]
-                auth_tag = data[72:]
+                if timestamp >= startdate:
+                    eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5:62])
+                    shared_key = ec.derive_private_key(priv, ec.SECP224R1(), default_backend()).exchange(ec.ECDH(), eph_key)
+                    symmetric_key = sha256(shared_key + b'\x00\x00\x00\x01' + data[5:62])
+                    decryption_key = symmetric_key[:16]
+                    iv = symmetric_key[16:]
+                    enc_data = data[62:72]
+                    auth_tag = data[72:]
 
-                decrypted = decrypt(enc_data, algorithms.AES(decryption_key), modes.GCM(iv, auth_tag))
-                tag = decode_tag(decrypted)
-                tag['timestamp'] = timestamp
-                tag['isodatetime'] = datetime.datetime.fromtimestamp(timestamp).isoformat()
-                tag['key'] = names[report['id']]
-                tag['goog'] = 'https://maps.google.com/maps?q=' + str(tag['lat']) + ',' + str(tag['lon'])
-                found.add(tag['key'])
-                ordered.append(tag)
+                    decrypted = decrypt(enc_data, algorithms.AES(decryption_key), modes.GCM(iv, auth_tag))
+                    tag = decode_tag(decrypted)
+                    tag['timestamp'] = timestamp
+                    tag['isodatetime'] = datetime.datetime.fromtimestamp(timestamp).isoformat()
+                    tag['key'] = names[report['id']]
+                    tag['goog'] = 'https://maps.google.com/maps?q=' + str(tag['lat']) + ',' + str(tag['lon'])
+                    found.add(tag['key'])
+                    ordered.append(tag)
 
-                # SQL Injection Mitigation
-                query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-                parameters = (names[report['id']], timestamp, report['payload'], report['id'],
-                              report['statusCode'], str(tag['lat']), str(tag['lon']), tag['conf'])
-                sq3.execute(query, parameters)
+                    # SQL Injection Mitigation
+                    query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    parameters = (names[report['id']], timestamp, report['payload'], report['id'],
+                                  report['statusCode'], str(tag['lat']), str(tag['lon']), tag['conf'])
+                    sq3.execute(query, parameters)
+            else:
+                # No private key - just show raw encrypted report
+                data = base64.b64decode(report['payload'])
+                timestamp = int.from_bytes(data[0:4], 'big') + 978307200
+
+                encrypted_report = {
+                    'key': names.get(report['id'], report['id']),
+                    'timestamp': timestamp,
+                    'isodatetime': datetime.datetime.fromtimestamp(timestamp).isoformat(),
+                    'payload': report['payload'],
+                    'encrypted': True,
+                    'statusCode': report['statusCode']
+                }
+                found.add(names[report['id']])
+                ordered.append(encrypted_report)
+                print(f"Encrypted report: {encrypted_report}")
 
         print(f'{len(ordered)} reports used.')
         ordered.sort(key=lambda item: item.get('timestamp'))
-        for rep in ordered: print(rep)
+        for rep in ordered:
+            if rep.get('encrypted'):
+                print(f"[ENCRYPTED] {rep}")
+            else:
+                print(rep)
         print(f'found:   {list(found)}')
         print(f'missing: {[key for key in names.values() if key not in found]}')
 
