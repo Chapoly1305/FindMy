@@ -263,8 +263,27 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
                       headers=generate_anisette_headers(),
                       json=data)
 
-    response = json.loads(r.content.decode(encoding='utf-8'))
-    logging.debug(f"Response from Apple v2 API (status {r.status_code}): {json.dumps(response, indent=2)}")
+    # Log raw response
+    raw_content = r.content.decode(encoding='utf-8')
+    logging.debug(f"Raw response from Apple v2 API (status {r.status_code}, length {len(raw_content)}): {raw_content}")
+
+    # Handle empty response
+    if not raw_content or len(raw_content) == 0:
+        logging.error(f"Empty response from Apple v2 API (status {r.status_code})")
+        return {
+            'statusCode': str(r.status_code),
+            'results': []
+        }
+
+    try:
+        response = json.loads(raw_content)
+        logging.debug(f"Parsed response from Apple v2 API: {json.dumps(response, indent=2)}")
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse JSON response: {e}")
+        return {
+            'statusCode': str(r.status_code),
+            'results': []
+        }
 
     # Convert new v2 response format to old format for backward compatibility
     results = []
