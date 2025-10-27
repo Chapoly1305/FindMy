@@ -87,14 +87,44 @@ if __name__ == "__main__":
 
         unixEpoch = int(datetime.datetime.now().timestamp())
         startdate = unixEpoch - (60 * 60 * args.hours)
-        data = {"search": [{"startDate": startdate * 1000, "endDate": unixEpoch * 1000, "ids": list(names.keys())}]}
 
-        r = requests.post("https://gateway.icloud.com/acsnservice/fetch",
+        # New v2 API request format
+        data = {
+            "clientContext": {
+                "policy": "foregroundClient",
+                "clientBundleIdentifier": "com.apple.findmy"
+            },
+            "fetch": [{
+                "secondaryIds": list(names.keys()),
+                "keyType": 1,
+                "endDate": unixEpoch * 1000,
+                "ownedDeviceIds": [],
+                "startDateSecondary": startdate * 1000,
+                "startDate": startdate * 1000
+            }]
+        }
+
+        r = requests.post("https://gateway.icloud.com/findmyservice/v2/fetch",
                           auth=getAuth(regenerate=args.regen,
                                        second_factor='trusted_device' if args.trusteddevice else 'sms'),
                           headers=generate_anisette_headers(),
                           json=data)
-        res = json.loads(r.content.decode())['results']
+
+        response = json.loads(r.content.decode())
+
+        # Parse new v2 response format
+        res = []
+        if 'acsnLocations' in response and 'locationPayload' in response['acsnLocations']:
+            for location_data in response['acsnLocations']['locationPayload']:
+                key_id = location_data['id']
+                for location_info in location_data.get('locationInfo', []):
+                    # Convert new format to old format for compatibility
+                    res.append({
+                        'id': key_id,
+                        'payload': location_info.get('location', location_info),
+                        'statusCode': 200
+                    })
+
         print(f'{r.status_code}: {len(res)} reports received.')
 
         ordered = []
@@ -102,7 +132,7 @@ if __name__ == "__main__":
 
         # SQL query to create a table named 'report' if it does not exist
         create_table_query = '''CREATE TABLE IF NOT EXISTS reports (
-        id_short TEXT, timestamp INTEGER, datePublished INTEGER, payload TEXT, 
+        id_short TEXT, timestamp INTEGER, payload TEXT,
         id TEXT, statusCode INTEGER, lat TEXT, lon TEXT, conf INTEGER, PRIMARY KEY(id_short,timestamp));'''
 
         # Execute the SQL query
@@ -133,8 +163,8 @@ if __name__ == "__main__":
                 ordered.append(tag)
 
                 # SQL Injection Mitigation
-                query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                parameters = (names[report['id']], timestamp, report['datePublished'], report['payload'], report['id'],
+                query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                parameters = (names[report['id']], timestamp, report['payload'], report['id'],
                               report['statusCode'], str(tag['lat']), str(tag['lon']), tag['conf'])
                 sq3.execute(query, parameters)
 

@@ -101,7 +101,7 @@ _sq3.execute(create_table_query)
 
 # SQL query to create a table named 'report' if it does not exist
 create_table_query = '''CREATE TABLE IF NOT EXISTS reports (
-id_short TEXT, timestamp INTEGER, datePublished INTEGER, payload TEXT, 
+id_short TEXT, timestamp INTEGER, payload TEXT,
 id TEXT, statusCode INTEGER, lat TEXT, lon TEXT, conf INTEGER, PRIMARY KEY(id,payload));'''
 
 # Execute the SQL query
@@ -231,14 +231,49 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
 
     unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
-    data = {"search": [{"startDate": start_date * 1000, "endDate": unix_epoch * 1000, "ids": advertisement_keys_list}]}
 
-    r = requests.post("https://gateway.icloud.com/acsnservice/fetch",
+    # New v2 API request format
+    data = {
+        "clientContext": {
+            "policy": "foregroundClient",
+            "clientBundleIdentifier": "com.apple.findmy"
+        },
+        "fetch": [{
+            "secondaryIds": advertisement_keys_list,
+            "keyType": 1,
+            "endDate": unix_epoch * 1000,
+            "ownedDeviceIds": [],
+            "startDateSecondary": start_date * 1000,
+            "startDate": start_date * 1000
+        }]
+    }
+
+    r = requests.post("https://gateway.icloud.com/findmyservice/v2/fetch",
                       auth=(dsid, searchPartyToken),
                       headers=generate_anisette_headers(),
                       json=data)
 
-    return json.loads(r.content.decode(encoding='utf-8'))
+    response = json.loads(r.content.decode(encoding='utf-8'))
+
+    # Convert new v2 response format to old format for backward compatibility
+    results = []
+    if 'acsnLocations' in response and 'locationPayload' in response['acsnLocations']:
+        for location_data in response['acsnLocations']['locationPayload']:
+            key_id = location_data['id']
+            for location_info in location_data.get('locationInfo', []):
+                # Convert new format to old format
+                results.append({
+                    'id': key_id,
+                    'payload': location_info.get('location', location_info),
+                    'statusCode': 200
+                })
+
+    logging.debug(f'Retrieved {len(results)} reports from v2 API')
+
+    return {
+        'statusCode': '200',
+        'results': results
+    }
 
 
 @app.post("/SingleDeviceEncryptedReports/", summary="Retrieve reports for one device at a time.")
@@ -262,15 +297,45 @@ async def single_device_encrypted_reports(
     unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
 
-    data = {"search": [{"startDate": start_date * 1000, "endDate": unix_epoch * 1000,
-                        "ids": [advertisement_key_san]}]}
+    # New v2 API request format
+    data = {
+        "clientContext": {
+            "policy": "foregroundClient",
+            "clientBundleIdentifier": "com.apple.findmy"
+        },
+        "fetch": [{
+            "secondaryIds": [advertisement_key_san],
+            "keyType": 1,
+            "endDate": unix_epoch * 1000,
+            "ownedDeviceIds": [],
+            "startDateSecondary": start_date * 1000,
+            "startDate": start_date * 1000
+        }]
+    }
 
-    r = requests.post("https://gateway.icloud.com/acsnservice/fetch",
+    r = requests.post("https://gateway.icloud.com/findmyservice/v2/fetch",
                       auth=(dsid, searchPartyToken),
                       headers=generate_anisette_headers(),
                       json=data)
 
-    return json.loads(r.content.decode(encoding='utf-8'))
+    response = json.loads(r.content.decode(encoding='utf-8'))
+
+    # Convert new v2 response format to old format for backward compatibility
+    results = []
+    if 'acsnLocations' in response and 'locationPayload' in response['acsnLocations']:
+        for location_data in response['acsnLocations']['locationPayload']:
+            key_id = location_data['id']
+            for location_info in location_data.get('locationInfo', []):
+                results.append({
+                    'id': key_id,
+                    'payload': location_info.get('location', location_info),
+                    'statusCode': 200
+                })
+
+    return {
+        'statusCode': '200',
+        'results': results
+    }
 
 
 @app.post("/MultipleDeviceEncryptedReports/", summary="Retrieve reports for multiple devices at a time.")
@@ -681,13 +746,13 @@ def sync_latest_decrypted_reports():
                 clear_text = decrypt_payload(report['payload'], _sq3.execute(
                     "SELECT private_key FROM tags WHERE hash_adv_key = ?", (report["id"],)).fetchone()[0])
 
-                # id_short TEXT, timestamp INTEGER, datePublished INTEGER, payload TEXT,
+                # id_short TEXT, timestamp INTEGER, payload TEXT,
                 # id TEXT, statusCode INTEGER, lat TEXT, lon TEXT, conf INTEGER
 
                 logging.debug(report)
                 logging.debug(clear_text)
-                query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                parameters = (report["id"][:7], clear_text['timestamp'], report['datePublished'], report['payload'],
+                query = "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                parameters = (report["id"][:7], clear_text['timestamp'], report['payload'],
                               report['id'], clear_text['status'], clear_text['lat'], clear_text['lon'],
                               clear_text['confidence'])
                 _sq3.execute(query, parameters)
