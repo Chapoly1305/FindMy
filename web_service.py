@@ -247,7 +247,7 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
             "clientBundleIdentifier": "com.apple.findmy"
         },
         "fetch": [{
-            "secondaryIds": advertisement_keys_list,
+            "primaryIds": advertisement_keys_list,
             "keyType": 1,
             "endDate": unix_epoch * 1000,
             "ownedDeviceIds": [],
@@ -292,9 +292,15 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
             key_id = location_data['id']
             for location_info in location_data.get('locationInfo', []):
                 # Convert new format to old format
+                # location_info might be a dict with 'location' field, or just a string payload
+                if isinstance(location_info, dict):
+                    payload = location_info.get('location', location_info)
+                else:
+                    payload = location_info
+
                 results.append({
                     'id': key_id,
-                    'payload': location_info.get('location', location_info),
+                    'payload': payload,
                     'statusCode': 200
                 })
 
