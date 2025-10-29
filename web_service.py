@@ -240,20 +240,24 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
     unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
 
-    # New v2 API request format
-    data = {
-        "clientContext": {
-            "policy": "foregroundClient",
-            "clientBundleIdentifier": "com.apple.findmy"
-        },
-        "fetch": [{
-            "primaryIds": advertisement_keys_list,
+    # New v2 API request format - each key needs its own fetch object
+    fetch_list = []
+    for key in advertisement_keys_list:
+        fetch_list.append({
+            "primaryIds": [key],
             "keyType": 1,
             "endDate": unix_epoch * 1000,
             "ownedDeviceIds": [],
-            "startDateSecondary": start_date * 1000,
+            "startDatePrimary": start_date * 1000,
             "startDate": start_date * 1000
-        }]
+        })
+
+    data = {
+        "clientContext": {
+            "policy": "foregroundClient",
+            "clientBundleIdentifier": "com.apple.icloud.searchpartyuseragent"
+        },
+        "fetch": fetch_list
     }
 
     logging.debug(f"Request to Apple v2 API: {json.dumps(data, indent=2)}")
@@ -727,7 +731,7 @@ async def key_to_monitor(
 
 # Get the reports from the upstream and decrypt them, save the result to the reports table
 def sync_latest_decrypted_reports():
-    hash_adv_keys = _sq3.execute("SELECT hash_adv_key FROM tags")
+    hash_adv_keys = _sq3.execute("SELECT DISTINCT hash_adv_key FROM tags WHERE mqtt_server IS NOT NULL AND mqtt_server != ''")
     hash_adv_keys = set([item[0] for item in hash_adv_keys])
 
     logging.debug(f"hash_adv_keys: {hash_adv_keys}")
@@ -735,7 +739,7 @@ def sync_latest_decrypted_reports():
         logging.error(f"No Report available, or Upstream informed an error.", exc_info=True)
         return
 
-    reports = get_report_from_upstream(",".join(hash_adv_keys), 1)
+    reports = get_report_from_upstream(",".join(hash_adv_keys), 24)
 
     if "results" in reports:
         for report in reports["results"]:
@@ -782,26 +786,6 @@ async def publish_mqtt():
     sync_latest_decrypted_reports()
 
     sql_query = """
-    WITH RankedReports AS (
-      SELECT
-        hash_adv_key,
-        friendly_name,
-        mqtt_server,
-        mqtt_port,
-        lat,
-        lon,
-        timestamp,
-        mqtt_over_tls,
-        mqtt_publish_encryption_key,
-        mqtt_username,
-        mqtt_userpass,
-        mqtt_topic,
-        conf,
-        ROW_NUMBER() OVER(PARTITION BY hash_adv_key ORDER BY timestamp DESC) AS rn
-      FROM tags
-      JOIN reports ON reports.id = tags.hash_adv_key
-      WHERE lat IS NOT NULL AND lon IS NOT NULL
-    )
     SELECT
       hash_adv_key,
       friendly_name,
@@ -811,12 +795,25 @@ async def publish_mqtt():
       lon,
       timestamp,
       mqtt_over_tls,
-      mqtt_publish_encryption_key,
       mqtt_username,
-      mqtt_userpass,
-      mqtt_topic,
-      conf
-    FROM RankedReports
+      mqtt_userpass
+    FROM (
+      SELECT
+        tags.hash_adv_key,
+        tags.friendly_name,
+        tags.mqtt_server,
+        tags.mqtt_port,
+        reports.lat,
+        reports.lon,
+        reports.timestamp,
+        tags.mqtt_over_tls,
+        tags.mqtt_username,
+        tags.mqtt_userpass,
+        ROW_NUMBER() OVER (PARTITION BY tags.hash_adv_key, tags.mqtt_server ORDER BY reports.timestamp DESC) AS rn
+      FROM tags
+      INNER JOIN reports ON tags.hash_adv_key = reports.id
+      WHERE reports.lat IS NOT NULL AND reports.lon IS NOT NULL
+    ) subquery
     WHERE rn = 1;
     """
     tags = _sq3.execute(sql_query).fetchall()
@@ -830,47 +827,50 @@ async def publish_mqtt():
 
     for tag in tags:
         try:
+            # Unpack tuple into named variables for readability
+            (hash_adv_key, friendly_name, mqtt_server, mqtt_port,
+             lat, lon, timestamp, mqtt_over_tls,
+             mqtt_username, mqtt_userpass) = tag
+
             logging.debug(f"\n"
-                          f"tag[0]: {tag[0]} \n"
-                          f"tag[1]: {tag[1]} \n"
-                          f"tag[2]: {tag[2]} \n"
-                          f"tag[3]: {tag[3]} \n"
-                          f"tag[4]: {tag[4]} \n"
-                          f"tag[5]: {tag[5]} \n"
-                          f"tag[6]: {tag[6]} \n"
-                          f"tag[7]: {tag[7]} \n"
-                          f"tag[8]: {tag[8]} \n"
-                          f"tag[9]: {tag[9]} \n"
-                          f"tag[10]: {tag[10]} \n"
-                          f"tag[11]: {tag[11]}")
+                          f"hash_adv_key: {hash_adv_key} \n"
+                          f"friendly_name: {friendly_name} \n"
+                          f"mqtt_server: {mqtt_server} \n"
+                          f"mqtt_port: {mqtt_port} \n"
+                          f"lat: {lat} \n"
+                          f"lon: {lon} \n"
+                          f"timestamp: {timestamp} \n"
+                          f"mqtt_over_tls: {mqtt_over_tls} \n"
+                          f"mqtt_username: {mqtt_username} \n"
+                          f"mqtt_userpass: {mqtt_userpass}")
 
             # https://owntracks.org/booklet/tech/json/#_typelocation
             report = {"_type": "location",
-                      "lat": float(tag[4]),
-                      "lon": float(tag[5]),
-                      "tst": float(tag[6]),
-                      "tid": tag[1]
+                      "lat": float(lat),
+                      "lon": float(lon),
+                      "tst": float(timestamp),
+                      "tid": friendly_name
                       }
-            escape_keyname = tag[0].replace("/", "_")
+            escape_keyname = hash_adv_key.replace("/", "_")
 
-            if tag[7]:
-                logging.info(f"Publishing MQTT for {tag[0]} to {tag[2]}")
+            if mqtt_over_tls:
+                logging.info(f"Publishing MQTT for {hash_adv_key} to {mqtt_server}")
                 publish.single(
-                    topic=f"owntracks/{tag[9]}/{tag[1]}_{escape_keyname[:4]}",
+                    topic=f"owntracks/{mqtt_username}/{friendly_name}_{escape_keyname[:4]}",
                     payload=json.dumps(report, separators=(',', ':')),
-                    qos=1, retain=True, hostname=tag[2], client_id=tag[9],
-                    port=int(tag[3]), keepalive=60, will=None, tls={"ca_certs": ca_path},
-                    auth={'username': tag[9], 'password': tag[10]},
+                    qos=1, retain=True, hostname=mqtt_server, client_id=mqtt_username,
+                    port=int(mqtt_port), keepalive=60, will=None, tls={"ca_certs": ca_path},
+                    auth={'username': mqtt_username, 'password': mqtt_userpass},
                     transport="tcp")
 
             else:
-                logging.info(f"Publishing MQTT for {tag[0]} to {tag[2]}")
+                logging.info(f"Publishing MQTT for {hash_adv_key} to {mqtt_server}")
                 publish.single(
-                    topic=f"owntracks/{tag[9]}/{tag[1]}_{escape_keyname[:4]}",
+                    topic=f"owntracks/{mqtt_username}/{friendly_name}_{escape_keyname[:4]}",
                     payload=json.dumps(report, separators=(',', ':')),
-                    qos=1, retain=True, hostname=tag[2], client_id=tag[9],
-                    port=int(tag[3]), keepalive=60, will=None, tls=None,
-                    auth={'username': tag[9], 'password': tag[10]},
+                    qos=1, retain=True, hostname=mqtt_server, client_id=mqtt_username,
+                    port=int(mqtt_port), keepalive=60, will=None, tls=None,
+                    auth={'username': mqtt_username, 'password': mqtt_userpass},
                     transport="tcp")
         except Exception as e:
             logging.error(f"Publish MQTT Failed: {e}", exc_info=True)
