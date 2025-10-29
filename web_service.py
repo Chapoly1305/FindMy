@@ -240,20 +240,24 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
     unix_epoch = int(datetime.datetime.now().timestamp())
     start_date = unix_epoch - (60 * 60 * hours)
 
-    # New v2 API request format
-    data = {
-        "clientContext": {
-            "policy": "foregroundClient",
-            "clientBundleIdentifier": "com.apple.findmy"
-        },
-        "fetch": [{
-            "primaryIds": advertisement_keys_list,
+    # New v2 API request format - each key needs its own fetch object
+    fetch_list = []
+    for key in advertisement_keys_list:
+        fetch_list.append({
+            "primaryIds": [key],
             "keyType": 1,
             "endDate": unix_epoch * 1000,
             "ownedDeviceIds": [],
             "startDateSecondary": start_date * 1000,
             "startDate": start_date * 1000
-        }]
+        })
+
+    data = {
+        "clientContext": {
+            "policy": "foregroundClient",
+            "clientBundleIdentifier": "com.apple.findmy"
+        },
+        "fetch": fetch_list
     }
 
     logging.debug(f"Request to Apple v2 API: {json.dumps(data, indent=2)}")
