@@ -248,14 +248,14 @@ def get_report_from_upstream(advertisement_keys: str, hours: int) -> {}:
             "keyType": 1,
             "endDate": unix_epoch * 1000,
             "ownedDeviceIds": [],
-            "startDateSecondary": start_date * 1000,
+            "startDatePrimary": start_date * 1000,
             "startDate": start_date * 1000
         })
 
     data = {
         "clientContext": {
             "policy": "foregroundClient",
-            "clientBundleIdentifier": "com.apple.findmy"
+            "clientBundleIdentifier": "com.apple.icloud.searchpartyuseragent"
         },
         "fetch": fetch_list
     }
