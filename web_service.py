@@ -727,7 +727,7 @@ async def key_to_monitor(
 
 # Get the reports from the upstream and decrypt them, save the result to the reports table
 def sync_latest_decrypted_reports():
-    hash_adv_keys = _sq3.execute("SELECT hash_adv_key FROM tags")
+    hash_adv_keys = _sq3.execute("SELECT DISTINCT hash_adv_key FROM tags WHERE mqtt_server IS NOT NULL AND mqtt_server != ''")
     hash_adv_keys = set([item[0] for item in hash_adv_keys])
 
     logging.debug(f"hash_adv_keys: {hash_adv_keys}")
@@ -735,7 +735,7 @@ def sync_latest_decrypted_reports():
         logging.error(f"No Report available, or Upstream informed an error.", exc_info=True)
         return
 
-    reports = get_report_from_upstream(",".join(hash_adv_keys), 1)
+    reports = get_report_from_upstream(",".join(hash_adv_keys), 24)
 
     if "results" in reports:
         for report in reports["results"]:
